@@ -1,0 +1,26 @@
+{
+    "tracks": [
+        {
+            "type": "standard",
+            "artist": "Queen",
+            "title": "Bohemian Rhapsody",
+            "duration":5,
+            "price": 1.50
+        },
+        {
+            "type": "standard",
+            "artist": "AC/DC",
+             "duration":5,
+            "title": "Back In Black",
+            "price": 1.20
+        },
+        {
+            "type": "vip",
+            "artist": "Miles Davis",
+            "title": "Kind of Blue",
+             "duration":5,
+            "price": 3.00,
+            "vip_message": "Эксклюзивная запись. Только для ценителей."
+        }
+    ]
+}
