@@ -15,21 +15,27 @@ type Track interface {
 	Play() error
 }
 
-func NewTrack(trackType, artist, name, vipMessage string, price float64, durationSeconds int) (Track, error) {
+type TrackOpts struct {
+	Type, Artist, Name, VIPMessage string
+	Price                          float64
+	DurationSeconds                int
+}
+
+func NewTrack(opts TrackOpts) (Track, error) {
 	var err error
 	var track Track
 
-	switch trackType {
+	switch opts.Type {
 	case "standard":
-		track, err = newStandard(name, artist, price, durationSeconds)
+		track, err = newStandard(opts.Name, opts.Artist, opts.Price, opts.DurationSeconds)
 	case "vip":
-		track, err = newVip(name, artist, vipMessage, price, durationSeconds)
+		track, err = newVip(opts.Name, opts.Artist, opts.VIPMessage, opts.Price, opts.DurationSeconds)
 	default:
-		err = fmt.Errorf("invalid track type, hast to be either 'standard' or 'vip', got '%s'", trackType)
+		err = fmt.Errorf("invalid track type, hast to be either 'standard' or 'vip', got '%s'", opts.Type)
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to create '%s' track: %w", trackType, err)
+		return nil, fmt.Errorf("failed to create '%s' track: %w", opts.Type, err)
 	}
 
 	return track, err

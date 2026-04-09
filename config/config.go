@@ -12,7 +12,7 @@ import (
 type Track struct {
 	Type       string  `json:"type"`
 	Artist     string  `json:"artist"`
-	Title      string  `json:"title"`
+	Name       string  `json:"name"`
 	VipMessage string  `json:"vip_message"`
 	Duration   int     `json:"duration"`
 	Price      float64 `json:"price"`
@@ -41,7 +41,14 @@ func LoadTracksFromJSON(path string) ([]track.Track, error) {
 	var errs error
 
 	for _, trackCfg := range config.Tracks {
-		track, err := track.NewTrack(trackCfg.Type, trackCfg.Artist, trackCfg.Title, trackCfg.VipMessage, trackCfg.Price, trackCfg.Duration)
+		track, err := track.NewTrack(track.TrackOpts{
+			Type:            trackCfg.Type,
+			Artist:          trackCfg.Artist,
+			Name:            trackCfg.Name,
+			VIPMessage:      trackCfg.VipMessage,
+			Price:           trackCfg.Price,
+			DurationSeconds: trackCfg.Duration,
+		})
 		if err != nil {
 			errs = errors.Join(errs, err)
 		} else {

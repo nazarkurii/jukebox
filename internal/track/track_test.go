@@ -1,7 +1,6 @@
 package track
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -10,21 +9,60 @@ import (
 func TestNewTrack(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
+	type testCase struct {
 		name         string
+		trackName    string
 		trackType    string
-		title        string
 		artist       string
-		path         string
 		price        float64
 		duration     int
+		vipMessage   string
 		wantTypeName string
 		wantErr      bool
-	}{
+	}
+
+	standartCheck := func(t *testing.T, track Track, tc testCase) {
+		standartTrack, ok := track.(standard)
+		if !ok {
+			t.Fatalf("expected type to be %q, got '%T'", "standart", track)
+		}
+
+		if standartTrack.artist != tc.artist {
+			t.Errorf("expected artist to be %q, got %q", tc.artist, standartTrack.artist)
+		}
+
+		if standartTrack.name != tc.trackName {
+			t.Errorf("expected name to be %q, got %q", tc.trackName, standartTrack.name)
+		}
+
+		if price := int(tc.price * 100); standartTrack.price != price {
+			t.Errorf("expected price to be %q, got %q", price, standartTrack.price)
+		}
+
+		if duration := time.Duration(tc.duration) * time.Second; standartTrack.duration != duration {
+			t.Errorf("expected duration to be %q, got %q", duration, standartTrack.name)
+		}
+
+	}
+
+	vipCheck := func(t *testing.T, track Track, tc testCase) {
+		vipTrack, ok := track.(vip)
+		if !ok {
+			t.Fatalf("expected type to be %q, got '%T'", "vip", track)
+		}
+
+		if vipTrack.message != tc.vipMessage {
+			t.Errorf("expected vip message to be %q, got %q", tc.vipMessage, vipTrack.message)
+		}
+
+		standartCheck(t, vipTrack.standard, tc)
+	}
+
+	tests := []testCase{
 		{
 			name:         "standard track success",
 			trackType:    "standard",
-			title:        "A",
+			trackName:    "A",
 			artist:       "B",
 			price:        1,
 			duration:     1,
@@ -34,7 +72,7 @@ func TestNewTrack(t *testing.T) {
 		{
 			name:         "vip track success",
 			trackType:    "vip",
-			title:        "A",
+			trackName:    "A",
 			artist:       "B",
 			price:        1,
 			duration:     1,
@@ -44,7 +82,7 @@ func TestNewTrack(t *testing.T) {
 		{
 			name:      "invalid track type",
 			trackType: "bad",
-			title:     "A",
+			trackName: "A",
 			artist:    "B",
 			price:     1,
 			duration:  1,
@@ -67,7 +105,14 @@ func TestNewTrack(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			track, err := NewTrack(tc.trackType, tc.title, tc.artist, tc.path, tc.price, tc.duration)
+			track, err := NewTrack(TrackOpts{
+				Type:            tc.trackType,
+				Artist:          tc.artist,
+				Name:            tc.trackName,
+				Price:           tc.price,
+				DurationSeconds: tc.duration,
+				VIPMessage:      tc.vipMessage,
+			})
 
 			if tc.wantErr {
 				if err == nil {
@@ -78,8 +123,16 @@ func TestNewTrack(t *testing.T) {
 			} else {
 				if err != nil {
 					t.Fatalf("expected error to be nil, got %v", err)
-				} else if gotTypeName := reflect.TypeOf(track).Name(); gotTypeName != tc.wantTypeName {
-					t.Errorf("got type %q, want %q", gotTypeName, tc.wantTypeName)
+					return
+				}
+
+				switch tc.trackType {
+				case "vip":
+					vipCheck(t, track, tc)
+				case "standard":
+					standartCheck(t, track, tc)
+				default:
+					t.Fatal("invalid test type")
 				}
 			}
 		})
