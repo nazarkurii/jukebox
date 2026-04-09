@@ -19,14 +19,14 @@ const (
 var (
 	ErrTrackNotFound           = errors.New("non-existing track")
 	ErrInvalidOperation        = errors.New("invalid operation")
-	ErrImpossibleChange        = errors.New("impossible change")
-	ErrInvalidCoinDenomination = errors.New("invalid coin denimination")
+	ErrImpossibleChange        = errors.New("the jukebox has run out of coins")
+	ErrInvalidCoinDenomination = errors.New("invalid coin denomination")
 )
 
 type CoinsPolicy interface {
 	IsValid(denomination int) bool
 	Denominations() []int
-	CalculateChange(changeSum int) ([]int, bool)
+	CalculateChange(changeSum int) ([]int, bool, error)
 }
 
 type TrackInfo struct {
@@ -154,28 +154,37 @@ func (jb *JukeBox) CancelTrack() []int {
 	return acceptedDenominations
 }
 
-func (jb *JukeBox) PlayChosenTrack() (string, func() ([]int, error), error) {
-	if jb.state != StatePlaying {
-		return "", nil, ErrInvalidOperation
+func (jb *JukeBox) GetChosenTrackTitle() (string, error) {
+	if jb.state == StateIdle {
+		return "", ErrInvalidOperation
 	}
 
-	return jb.chosenTrack.track.Title(), func() ([]int, error) {
-		defer jb.changeState(StateIdle)
+	return jb.chosenTrack.track.Title(), nil
+}
 
-		playedTrack := jb.chosenTrack
+func (jb *JukeBox) PlayChosenTrack() ([]int, error) {
+	if jb.state != StatePlaying {
+		return nil, ErrInvalidOperation
+	}
+
+	defer func() {
+		jb.changeState(StateIdle)
 		jb.chosenTrack = nil
-		jb.history = append(jb.history, playedTrack.track.TitleAligned())
+	}()
 
-		err := playedTrack.track.Play()
-		if err != nil {
-			return playedTrack.acceptedDenominations, fmt.Errorf("failed to play the track: %w", err)
-		}
+	err := jb.chosenTrack.track.Play()
+	if err != nil {
+		return jb.chosenTrack.acceptedDenominations, fmt.Errorf("failed to play the track: %w", err)
+	}
 
-		change, ok := jb.coins.CalculateChange(playedTrack.totalAccepted - playedTrack.track.Price())
-		if !ok {
-			return nil, fmt.Errorf("failed to calculate the change: %w", ErrImpossibleChange)
-		}
+	jb.history = append(jb.history, jb.chosenTrack.track.Title())
 
-		return change, nil
-	}, nil
+	change, ok, err := jb.coins.CalculateChange(jb.chosenTrack.totalAccepted - jb.chosenTrack.track.Price())
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate the change: %w", err)
+	} else if !ok {
+		return nil, fmt.Errorf("failed to calculate the change: %w", ErrImpossibleChange)
+	}
+
+	return change, nil
 }
