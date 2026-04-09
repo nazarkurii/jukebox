@@ -1,8 +1,11 @@
 package display
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"strconv"
 	"strings"
 
@@ -10,28 +13,51 @@ import (
 )
 
 type CLI struct {
-	jb *jukebox.JukeBox
+	jb  *jukebox.JukeBox
+	in  io.Reader
+	out io.Writer
 }
 
-func NewCLI(jb *jukebox.JukeBox) *CLI {
-	return &CLI{jb: jb}
+func (cli CLI) write(s string) {
+	_, err := cli.out.Write([]byte(s))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func (cli CLI) writef(s string, args ...any) {
+	cli.write(fmt.Sprintf(s, args...))
+}
+
+func (cli *CLI) processUnexpectedError(err error) {
+	log.Fatalf("An unexpected error occured %q, restart the jukebox manualy...", err)
+}
+
+func NewCLI(jb *jukebox.JukeBox, in io.Reader, out io.Writer) *CLI {
+	return &CLI{jb: jb, in: in, out: out}
 }
 
 func (cli *CLI) Start() {
 	cli.printTrackList()
-
 	for {
-		var command string
-		fmt.Scan(&command)
+		scanner := bufio.NewScanner(cli.in)
+		if !scanner.Scan() {
+			cli.processUnexpectedError(scanner.Err())
+			continue
+		}
+
+		commandStr := strings.TrimSpace(scanner.Text())
+		if commandStr == "" || strings.HasPrefix(commandStr, " ") {
+			continue
+		}
 
 		switch cli.jb.State() {
 		case jukebox.StateIdle:
-			cli.processIdleCommand(command)
+			cli.processIdleCommand(commandStr)
 		case jukebox.StateAcceptCoins:
-			cli.processAcceptCoinsCommand(command)
+			cli.processAcceptCoinsCommand(commandStr)
 		default:
-			fmt.Println("Uexpected error, restarting the jukebox...")
-			cli.printTrackList()
+			cli.processUnexpectedError(errors.New("invalid jukebox state"))
 		}
 	}
 }
@@ -39,46 +65,44 @@ func (cli *CLI) Start() {
 func (cli *CLI) printTrackList() {
 	tracks := cli.jb.TrackList()
 
-	fmt.Println(`
+	var builder strings.Builder
+
+	builder.WriteString((`
 ╔══════════════════════════════════════════╗
 ║               🎵 JUKEBOX                 ║
 ╚══════════════════════════════════════════╝
-	`)
+	`))
 
 	for _, t := range tracks {
-		fmt.Printf("%d. %-45s %4s\n",
+		builder.WriteString(fmt.Sprintf("\n%d. %-45s %4s",
 			t.Number,
 			t.Title,
 			formatMoney(t.Price),
-		)
+		))
 	}
 
-	fmt.Printf("\nType track number or name to select\nType 'history' to view played tracks\n\nProvide track number:")
-}
-
-func (cli *CLI) processUnexpectedError(_ error) {
-	fmt.Printf("An unexpected error occured, restarting the jukebox...\n\n")
-	cli.printTrackList()
+	builder.WriteString("\nType track number or name to select\nType 'history' to view played tracks\n\nProvide track number: ")
+	cli.write(builder.String())
 }
 
 func (cli *CLI) processIdleCommand(command string) {
 	if command == "history" {
 		cli.processHistoryCommand()
-		fmt.Printf("Provide track number:")
 	} else {
 		cli.processTrackChoosingCommand(command)
 	}
 }
 
 func (cli *CLI) processHistoryCommand() {
-	defer fmt.Println()
-
 	if history := cli.jb.History(); len(history) == 0 {
-		fmt.Println("No tracks played yet")
+		cli.write("No tracks played yet\nProvide track number: ")
 	} else {
+		var builder strings.Builder
 		for i, h := range history {
-			fmt.Printf("%d. %s\n", i+1, h)
+			builder.WriteString(fmt.Sprintf("%d. %s\n", i+1, h))
 		}
+		builder.WriteString("\nProvide track number: ")
+		cli.write(builder.String())
 	}
 }
 
@@ -96,40 +120,49 @@ func (cli *CLI) processTrackChoosingCommand(command string) {
 
 	if err != nil {
 		if errors.Is(err, jukebox.ErrTrackNotFound) {
-			fmt.Printf("\nTrack not found\nProvide track number:")
+			cli.write("\nTrack not found\nProvide track number: ")
 		} else {
 			cli.processUnexpectedError(err)
 		}
 		return
 	}
 
-	fmt.Printf("\nSelected: %s %6s\n", title, formatMoney(price))
-	fmt.Println("\nValid coin denominations: ", formatDenominations(cli.jb.CoinDenominations()))
-	fmt.Printf("Inserted: %s / Required: %s\nInsert a coin: ", formatMoney(0), formatMoney(price))
+	cli.writef(`
+Selected: %s %6s
+Valid coin denominations: %v
+Inserted: %s / Required: %s
+Insert a coin: `,
+		title, formatMoney(price), formatDenominations(cli.jb.CoinDenominations()), formatMoney(0), formatMoney(price))
 }
 
 func (cli *CLI) processTrackCancelation() {
 	change := cli.jb.CancelTrack()
-	fmt.Println("Track canceled")
+	var builder strings.Builder
+
+	builder.WriteString("Track canceled")
 
 	if change != nil {
-		fmt.Println("Change:", formatCoins(change))
+		builder.WriteString("\nChange:" + formatCoins(change))
 	}
+
+	cli.write(builder.String())
 }
 
 func (cli *CLI) processCoinAcceptance(command string) {
 	providedCoin, err := strconv.ParseFloat(command, 64)
 	if err != nil {
-		fmt.Printf("\nInvalid coin format (example: %.2f)\nInsert a coin: ", float64(cli.jb.CoinDenominations()[1]/100))
+		cli.writef("\nInvalid coin format (example: %.2f)\nInsert a coin: ", float64(cli.jb.CoinDenominations()[1]/100))
 		return
 	}
 
 	totalAccepted, price, err := cli.jb.AcceptCoin(int(providedCoin * 100))
 	if err != nil {
 		if errors.Is(err, jukebox.ErrInvalidCoinDenomination) {
-			fmt.Println("Invalid coin denomination")
-			fmt.Println("Allowed:", formatDenominations(cli.jb.CoinDenominations()))
-			fmt.Printf("Insert a coin: ")
+			cli.writef(`
+Invalid coin denomination
+Allowed: %v
+Insert a coin: `, formatDenominations(cli.jb.CoinDenominations()))
+
 		} else {
 			cli.processUnexpectedError(err)
 		}
@@ -137,20 +170,21 @@ func (cli *CLI) processCoinAcceptance(command string) {
 	}
 
 	if totalAccepted >= price {
-		title, play, err := cli.jb.PlayChosenTrack()
+		title, err := cli.jb.GetChosenTrackTitle()
 		if err != nil {
 			cli.processUnexpectedError(err)
 			return
 		}
 
-		fmt.Println("\nEnough, starting to play the track...\nPlaying: ", title)
+		cli.write("\nEnough, starting to play the track...\nPlaying: " + title)
 
-		change, err := play()
+		change, err := cli.jb.PlayChosenTrack()
 		if err != nil {
 			if errors.Is(err, jukebox.ErrImpossibleChange) {
-				fmt.Println("We can't calculate yout change due to lack of funds, please contact support for refund...")
+				cli.write("We can't calculate yout change due to lack of funds, please contact support for refund...")
 			}
-			fmt.Println("Something went wrong... \nHere is your refund: " + formatCoins(change))
+			cli.write("Something went wrong... \nHere is your refund: " + formatCoins(change))
+			cli.processUnexpectedError(err)
 			return
 		}
 
@@ -158,11 +192,11 @@ func (cli *CLI) processCoinAcceptance(command string) {
 		if change != nil {
 			msg += " Change: " + formatCoins(change)
 		}
-		fmt.Println(msg)
+		cli.write(msg)
 
 		cli.printTrackList()
 	} else {
-		fmt.Printf("Inserted: %s / Required: %s\nInsert a coin: ", formatMoney(totalAccepted), formatMoney(price))
+		cli.writef("Inserted: %s / Required: %s\nInsert a coin: ", formatMoney(totalAccepted), formatMoney(price))
 	}
 }
 
